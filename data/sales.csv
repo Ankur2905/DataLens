@@ -1,0 +1,6 @@
+order_id,product,price,quantity
+101,Laptop,50000,1
+102,Phone,20000,2
+103,Laptop,,1
+104,Phone,20000,2
+105,Tablet,30000,1
