@@ -3,6 +3,7 @@ import pytest
 
 from app.analytics.analytics import (
     generate_analytics,
+    generate_chart_data,
     group_by_aggregate,
 )
 
@@ -122,4 +123,82 @@ def test_group_by_aggregate_rejects_mean_for_strings():
             group_by="category",
             aggregation="mean",
             metric="label",
+        )
+
+        
+def test_generate_chart_data_creates_bar_chart():
+    df = pd.DataFrame(
+        {
+            "category": ["A", "A", "B"],
+            "amount": [10, 20, 40],
+        }
+    )
+
+    result = generate_chart_data(
+        df,
+        chart_type="bar",
+        x_column="category",
+        y_column="amount",
+        aggregation="sum",
+    )
+
+    assert result["chart_type"] == "bar"
+    assert result["data"] == [
+        {"x": "A", "y": 30},
+        {"x": "B", "y": 40},
+    ]
+
+
+def test_generate_chart_data_creates_scatter_plot():
+    df = pd.DataFrame(
+        {
+            "height": [150, 160, 170],
+            "weight": [50, 60, 70],
+        }
+    )
+
+    result = generate_chart_data(
+        df,
+        chart_type="scatter",
+        x_column="height",
+        y_column="weight",
+    )
+
+    assert result["chart_type"] == "scatter"
+    assert result["data"] == [
+        {"x": 150, "y": 50},
+        {"x": 160, "y": 60},
+        {"x": 170, "y": 70},
+    ]
+
+
+def test_generate_chart_data_creates_histogram():
+    df = pd.DataFrame({"score": list(range(1, 11))})
+
+    result = generate_chart_data(
+        df,
+        chart_type="histogram",
+        x_column="score",
+        bins=5,
+    )
+
+    assert result["chart_type"] == "histogram"
+    assert len(result["data"]) == 5
+    assert sum(item["y"] for item in result["data"]) == 10
+
+
+def test_generate_chart_data_rejects_non_numeric_scatter_column():
+    df = pd.DataFrame(
+        {
+            "category": ["A", "B"],
+            "amount": [10, 20],
+        }
+    )
+
+    with pytest.raises(ValueError, match="must be numeric"):
+        generate_chart_data(
+            df,
+            chart_type="scatter",
+            x_column="category",
+            y_column="amount",
         )

@@ -15,6 +15,7 @@ from app.analytics.dataset_store import (
 )
 from app.analytics.analytics import (
     generate_analytics,
+    generate_chart_data,
     group_by_aggregate,
 )
 
@@ -323,3 +324,38 @@ def get_group_by_analytics(
             detail=str(exc),
         ) from exc
 
+
+@app.post("/api/v1/datasets/{dataset_id}/analytics/chart")
+def get_chart_data(
+    dataset_id: str,
+    request: dict,
+):
+    """Generate chart-ready data for a dataset."""
+    df = get_dataset(dataset_id)
+
+    if df is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Dataset not found. Upload the file again.",
+        )
+
+    try:
+        result = generate_chart_data(
+            df=df,
+            chart_type=request.get("chart_type", ""),
+            x_column=request.get("x_column"),
+            y_column=request.get("y_column"),
+            aggregation=request.get("aggregation", "sum"),
+            bins=request.get("bins", 10),
+        )
+
+        return {
+            "dataset_id": dataset_id,
+            **result,
+        }
+
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc

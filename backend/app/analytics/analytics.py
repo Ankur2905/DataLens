@@ -128,3 +128,124 @@ def group_by_aggregate(
         "metric": metric,
         "results": json.loads(records),
     }
+
+
+def generate_chart_data(
+    df,
+    chart_type,
+    x_column=None,
+    y_column=None,
+    aggregation="sum",
+    bins=10,
+):
+    """Generate chart-ready data from a complete DataFrame."""
+    import json
+
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError("df must be a pandas DataFrame")
+
+    if chart_type not in {"bar", "line", "scatter", "histogram"}:
+        raise ValueError(
+            "chart_type must be one of: bar, line, scatter, histogram"
+        )
+
+    if df.empty:
+        raise ValueError("Cannot generate a chart from an empty dataset")
+
+    def require_column(column, argument_name):
+        if not column:
+            raise ValueError(f"{argument_name} is required")
+
+        if column not in df.columns:
+            raise ValueError(f"Column '{column}' does not exist")
+
+    def require_numeric(column):
+        if not pd.api.types.is_numeric_dtype(df[column]):
+            raise ValueError(f"Column '{column}' must be numeric")
+
+    if chart_type in {"bar", "line"}:
+        require_column(x_column, "x_column")
+
+        if aggregation not in {
+            "count", "sum", "mean", "median", "min", "max"
+        }:
+            raise ValueError("Unsupported aggregation")
+
+        if aggregation == "count":
+            grouped = df.groupby(x_column, dropna=False).size()
+        else:
+            require_column(y_column, "y_column")
+            require_numeric(y_column)
+
+            grouped = df.groupby(x_column, dropna=False)[y_column].agg(
+                aggregation
+            )
+
+        result = grouped.reset_index(name="value")
+        records = json.loads(
+            result.to_json(orient="records", date_format="iso")
+        )
+
+        data = [
+            {"x": record[x_column], "y": record["value"]}
+            for record in records
+        ]
+
+        return {
+            "chart_type": chart_type,
+            "x_column": x_column,
+            "y_column": y_column,
+            "aggregation": aggregation,
+            "data": data,
+        }
+
+    if chart_type == "scatter":
+        require_column(x_column, "x_column")
+        require_column(y_column, "y_column")
+        require_numeric(x_column)
+        require_numeric(y_column)
+
+        result = df[[x_column, y_column]].dropna()
+        records = json.loads(
+            result.to_json(orient="records", date_format="iso")
+        )
+
+        data = [
+            {"x": record[x_column], "y": record[y_column]}
+            for record in records
+        ]
+
+        return {
+            "chart_type": chart_type,
+            "x_column": x_column,
+            "y_column": y_column,
+            "data": data,
+        }
+
+    require_column(x_column, "x_column")
+    require_numeric(x_column)
+
+    if not isinstance(bins, int) or isinstance(bins, bool) or not 5 <= bins <= 50:
+        raise ValueError("bins must be an integer between 5 and 50")
+
+    values = df[x_column].dropna()
+
+    if values.empty:
+        raise ValueError(
+            f"Column '{x_column}' has no numeric values to plot"
+        )
+
+    intervals = pd.cut(values, bins=bins, include_lowest=True)
+    counts = intervals.value_counts(sort=False)
+
+    data = [
+        {"x": str(interval), "y": int(count)}
+        for interval, count in counts.items()
+    ]
+
+    return {
+        "chart_type": chart_type,
+        "x_column": x_column,
+        "bins": bins,
+        "data": data,
+    }

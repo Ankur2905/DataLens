@@ -20,7 +20,11 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Line,
+  LineChart,
   ResponsiveContainer,
+  Scatter,
+  ScatterChart,
   Tooltip,
   XAxis,
   YAxis,
@@ -89,6 +93,14 @@ function App() {
   const [groupResults, setGroupResults] = useState(null);
   const [groupLoading, setGroupLoading] = useState(false);
   const [groupError, setGroupError] = useState("");
+  const [chartType, setChartType] = useState("bar");
+  const [chartXColumn, setChartXColumn] = useState("");
+  const [chartYColumn, setChartYColumn] = useState("");
+  const [chartAggregation, setChartAggregation] = useState("sum");
+  const [chartBins, setChartBins] = useState(10);
+  const [chartResults, setChartResults] = useState(null);
+  const [chartLoading, setChartLoading] = useState(false);
+  const [chartError, setChartError] = useState("");
 
   async function uploadFile(file) {
     if (!file) return;
@@ -459,6 +471,96 @@ function App() {
       );
     } finally {
       setGroupLoading(false);
+    }
+  }
+
+  async function loadCustomChart() {
+    if (!profile?.dataset_id) {
+      setChartError("Upload a dataset before creating a chart.");
+      return;
+    }
+
+    if (!chartXColumn) {
+      setChartError("Select an X-axis column.");
+      return;
+    }
+
+    if (
+      chartType !== "histogram" &&
+      chartType !== "bar" &&
+      chartType !== "line" &&
+      chartType !== "scatter"
+    ) {
+      setChartError("Select a valid chart type.");
+      return;
+    }
+
+    if (
+      chartType !== "histogram" &&
+      chartType !== "bar" &&
+      chartType !== "line" &&
+      chartType !== "scatter"
+    ) {
+      return;
+    }
+
+    if (
+      chartType !== "histogram" &&
+      chartType !== "scatter" &&
+      chartAggregation !== "count" &&
+      !chartYColumn
+    ) {
+      setChartError("Select a Y-axis column.");
+      return;
+    }
+
+    if (chartType === "scatter" && !chartYColumn) {
+      setChartError("Select a Y-axis column.");
+      return;
+    }
+
+    setChartLoading(true);
+    setChartError("");
+    setChartResults(null);
+
+    try {
+      const body = {
+        chart_type: chartType,
+        x_column: chartXColumn,
+        aggregation: chartAggregation,
+        bins: Number(chartBins),
+      };
+
+      if (chartYColumn) {
+        body.y_column = chartYColumn;
+      }
+
+      const response = await fetch(
+        `${API_URL}/api/v1/datasets/${profile.dataset_id}/analytics/chart`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        },
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.detail || "Unable to generate chart.");
+      }
+
+      setChartResults(result);
+    } catch (err) {
+      setChartError(
+        err instanceof TypeError
+          ? "Cannot connect to the backend. Check that FastAPI is running."
+          : err.message,
+      );
+    } finally {
+      setChartLoading(false);
     }
   }
 
@@ -1215,6 +1317,268 @@ function App() {
                           )}
                         </div>
                       </>
+                    )}
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                    <div>
+                      <h3 className="font-semibold text-slate-900">
+                        Custom Chart Builder
+                      </h3>
+                      <p className="mt-1 text-sm text-slate-500">
+                        Build charts from your complete working dataset.
+                      </p>
+                    </div>
+
+                    <form
+                      className="mt-5 grid gap-4 md:grid-cols-2"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        loadCustomChart();
+                      }}
+                    >
+                      <label className="text-sm font-medium text-slate-700">
+                        Chart type
+                        <select
+                          value={chartType}
+                          onChange={(event) => {
+                            setChartType(event.target.value);
+                            setChartResults(null);
+                            setChartError("");
+                          }}
+                          className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3"
+                        >
+                          <option value="bar">Bar chart</option>
+                          <option value="line">Line chart</option>
+                          <option value="scatter">Scatter plot</option>
+                          <option value="histogram">Histogram</option>
+                        </select>
+                      </label>
+
+                      <label className="text-sm font-medium text-slate-700">
+                        {chartType === "histogram"
+                          ? "Numeric column"
+                          : "X-axis column"}
+                        <select
+                          value={chartXColumn}
+                          onChange={(event) => {
+                            setChartXColumn(event.target.value);
+                            setChartResults(null);
+                            setChartError("");
+                          }}
+                          required
+                          className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3"
+                        >
+                          <option value="">Select a column</option>
+                          {columns.map((column) => (
+                            <option key={column.name} value={column.name}>
+                              {column.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      {chartType !== "histogram" &&
+                        !(
+                          ["bar", "line"].includes(chartType) &&
+                          chartAggregation === "count"
+                        ) && (
+                          <label className="text-sm font-medium text-slate-700">
+                            Y-axis column
+                            <select
+                              value={chartYColumn}
+                              onChange={(event) => {
+                                setChartYColumn(event.target.value);
+                                setChartResults(null);
+                                setChartError("");
+                              }}
+                              required
+                              className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3"
+                            >
+                              <option value="">Select a column</option>
+                              {columns.map((column) => (
+                                <option key={column.name} value={column.name}>
+                                  {column.name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
+
+                      {(chartType === "bar" || chartType === "line") && (
+                        <label className="text-sm font-medium text-slate-700">
+                          Aggregation
+                          <select
+                            value={chartAggregation}
+                            onChange={(event) => {
+                              setChartAggregation(event.target.value);
+                              setChartResults(null);
+                              setChartError("");
+                            }}
+                            className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3"
+                          >
+                            <option value="count">Count rows</option>
+                            <option value="sum">Sum</option>
+                            <option value="mean">Mean</option>
+                            <option value="median">Median</option>
+                            <option value="min">Minimum</option>
+                            <option value="max">Maximum</option>
+                          </select>
+                        </label>
+                      )}
+
+                      {chartType === "histogram" && (
+                        <label className="text-sm font-medium text-slate-700">
+                          Number of bins (5–50)
+                          <input
+                            type="number"
+                            min="5"
+                            max="50"
+                            step="1"
+                            value={chartBins}
+                            onChange={(event) => {
+                              setChartBins(event.target.value);
+                              setChartResults(null);
+                              setChartError("");
+                            }}
+                            required
+                            className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3"
+                          />
+                        </label>
+                      )}
+
+                      <div className="flex items-end">
+                        <button
+                          type="submit"
+                          disabled={chartLoading}
+                          className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                        >
+                          {chartLoading && (
+                            <LoaderCircle size={17} className="animate-spin" />
+                          )}
+                          {chartLoading
+                            ? "Generating chart..."
+                            : "Generate chart"}
+                        </button>
+                      </div>
+                    </form>
+
+                    {chartError && (
+                      <p role="alert" className="mt-4 text-sm text-red-600">
+                        {chartError}
+                      </p>
+                    )}
+
+                    {chartResults && (
+                      <div className="mt-6">
+                        <h4 className="font-semibold text-slate-900">
+                          Chart preview
+                        </h4>
+
+                        {chartResults.data.length > 0 ? (
+                          <div className="mt-4 h-80">
+                            <ResponsiveContainer width="100%" height="100%">
+                              {chartResults.chart_type === "scatter" ? (
+                                <ScatterChart
+                                  margin={{
+                                    top: 8,
+                                    right: 20,
+                                    bottom: 8,
+                                    left: 8,
+                                  }}
+                                >
+                                  <CartesianGrid strokeDasharray="3 3" />
+                                  <XAxis
+                                    type="number"
+                                    dataKey="x"
+                                    name={chartResults.x_column}
+                                    tick={{ fontSize: 11 }}
+                                  />
+                                  <YAxis
+                                    type="number"
+                                    dataKey="y"
+                                    name={chartResults.y_column}
+                                    tick={{ fontSize: 11 }}
+                                  />
+                                  <Tooltip
+                                    cursor={{ strokeDasharray: "3 3" }}
+                                  />
+                                  <Scatter
+                                    name="Observations"
+                                    data={chartResults.data}
+                                    fill="#6366f1"
+                                  />
+                                </ScatterChart>
+                              ) : chartResults.chart_type === "line" ? (
+                                <LineChart
+                                  data={chartResults.data}
+                                  margin={{
+                                    top: 8,
+                                    right: 16,
+                                    bottom: 8,
+                                    left: 8,
+                                  }}
+                                >
+                                  <CartesianGrid
+                                    strokeDasharray="3 3"
+                                    vertical={false}
+                                  />
+                                  <XAxis dataKey="x" tick={{ fontSize: 11 }} />
+                                  <YAxis tick={{ fontSize: 11 }} />
+                                  <Tooltip />
+                                  <Line
+                                    type="monotone"
+                                    dataKey="y"
+                                    name={chartResults.aggregation || "Value"}
+                                    stroke="#6366f1"
+                                    strokeWidth={2}
+                                    dot={false}
+                                  />
+                                </LineChart>
+                              ) : (
+                                <BarChart
+                                  data={chartResults.data}
+                                  margin={{
+                                    top: 8,
+                                    right: 16,
+                                    bottom: 8,
+                                    left: 8,
+                                  }}
+                                >
+                                  <CartesianGrid
+                                    strokeDasharray="3 3"
+                                    vertical={false}
+                                  />
+                                  <XAxis
+                                    dataKey="x"
+                                    tick={{ fontSize: 11 }}
+                                    interval="preserveStartEnd"
+                                  />
+                                  <YAxis tick={{ fontSize: 11 }} />
+                                  <Tooltip />
+                                  <Bar
+                                    dataKey="y"
+                                    name={
+                                      chartResults.aggregation || "Frequency"
+                                    }
+                                    fill="#6366f1"
+                                    radius={[5, 5, 0, 0]}
+                                  />
+                                </BarChart>
+                              )}
+                            </ResponsiveContainer>
+                          </div>
+                        ) : (
+                          <p className="mt-4 text-sm text-slate-500">
+                            No data is available for this chart selection.
+                          </p>
+                        )}
+
+                        <p className="mt-3 text-xs text-slate-500">
+                          {chartResults.data.length.toLocaleString()} data
+                          points returned.
+                        </p>
+                      </div>
                     )}
                   </div>
 

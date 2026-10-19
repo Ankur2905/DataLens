@@ -140,3 +140,79 @@ def test_analytics_rejects_unknown_dataset():
     )
 
     assert response.status_code == 404
+
+
+def test_chart_api_returns_bar_chart_data():
+    dataset_id = upload_csv(
+        "category,amount\n"
+        "A,10\n"
+        "A,20\n"
+        "B,40\n"
+    )
+
+    response = client.post(
+        f"/api/v1/datasets/{dataset_id}/analytics/chart",
+        json={
+            "chart_type": "bar",
+            "x_column": "category",
+            "y_column": "amount",
+            "aggregation": "sum",
+        },
+    )
+
+    assert response.status_code == 200
+
+    result = response.json()
+
+    assert result["chart_type"] == "bar"
+    assert result["data"] == [
+        {"x": "A", "y": 30},
+        {"x": "B", "y": 40},
+    ]
+
+def test_chart_api_returns_scatter_data():
+    dataset_id = upload_csv(
+        "height,weight\n"
+        "150,50\n"
+        "160,60\n"
+        "170,70\n"
+    )
+
+    response = client.post(
+        f"/api/v1/datasets/{dataset_id}/analytics/chart",
+        json={
+            "chart_type": "scatter",
+            "x_column": "height",
+            "y_column": "weight",
+        },
+    )
+
+    assert response.status_code == 200
+
+    result = response.json()
+
+    assert result["chart_type"] == "scatter"
+    assert result["data"] == [
+        {"x": 150, "y": 50},
+        {"x": 160, "y": 60},
+        {"x": 170, "y": 70},
+    ]
+
+
+def test_chart_api_rejects_unknown_column():
+    dataset_id = upload_csv(
+        "category,amount\n"
+        "A,10\n"
+    )
+
+    response = client.post(
+        f"/api/v1/datasets/{dataset_id}/analytics/chart",
+        json={
+            "chart_type": "bar",
+            "x_column": "unknown",
+            "y_column": "amount",
+            "aggregation": "sum",
+        },
+    )
+
+    assert response.status_code == 400
