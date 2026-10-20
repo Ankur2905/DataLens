@@ -75,6 +75,15 @@ function App() {
   const [sortOrder, setSortOrder] = useState("asc");
   const [filterColumn, setFilterColumn] = useState("");
   const [filterValue, setFilterValue] = useState("");
+  const [filterMin, setFilterMin] = useState("");
+  const [filterMax, setFilterMax] = useState("");
+  const [savedFilters, setSavedFilters] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("datalens-saved-filters") || "[]");
+    } catch {
+      return [];
+    }
+  });
   const [previewLoading, setPreviewLoading] = useState(false);
   const [cleanOperation, setCleanOperation] = useState("fill_missing");
   const [cleanColumn, setCleanColumn] = useState("");
@@ -89,6 +98,9 @@ function App() {
   const [analyticsData, setAnalyticsData] = useState(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsError, setAnalyticsError] = useState("");
+  const [outlierData, setOutlierData] = useState(null);
+  const [outlierLoading, setOutlierLoading] = useState(false);
+  const [outlierError, setOutlierError] = useState("");
   const [groupByColumn, setGroupByColumn] = useState("");
   const [groupAggregation, setGroupAggregation] = useState("count");
   const [groupMetric, setGroupMetric] = useState("");
@@ -119,6 +131,8 @@ function App() {
     setProfile(null);
     setAnalyticsData(null);
     setGroupResults(null);
+    setOutlierData(null);
+    setOutlierError("");
     setAnalyticsError("");
     setGroupError("");
     setPreviewData(null);
@@ -146,6 +160,8 @@ function App() {
       setSortOrder("asc");
       setFilterColumn("");
       setFilterValue("");
+      setFilterMin("");
+      setFilterMax("");
 
       await loadPreview(result.dataset_id, {
         page: 1,
@@ -175,6 +191,8 @@ function App() {
     const order = options.sortOrder ?? "asc";
     const filter = options.filterColumn ?? "";
     const value = options.filterValue ?? "";
+    const minValue = options.filterMin ?? "";
+    const maxValue = options.filterMax ?? "";
 
     const params = new URLSearchParams({
       page: String(page),
@@ -185,9 +203,20 @@ function App() {
     if (search) params.set("search", search);
     if (sort) params.set("sort_by", sort);
 
-    if (filter && value) {
+    if (filter) {
       params.set("filter_column", filter);
-      params.set("filter_value", value);
+
+      if (value !== "") {
+        params.set("filter_value", value);
+      }
+
+      if (minValue !== "") {
+        params.set("min_value", minValue);
+      }
+
+      if (maxValue !== "") {
+        params.set("max_value", maxValue);
+      }
     }
 
     setPreviewLoading(true);
@@ -211,6 +240,46 @@ function App() {
       setPreviewLoading(false);
     }
   }
+
+  const saveFilterPreset = (name) => {
+    const preset = {
+      id: crypto.randomUUID(),
+      name: name.trim(),
+      filterColumn,
+      filterValue,
+      filterMin,
+      filterMax,
+      createdAt: new Date().toISOString(),
+    };
+
+    const updatedFilters = [...savedFilters, preset];
+
+    setSavedFilters(updatedFilters);
+    localStorage.setItem(
+      "datalens-saved-filters",
+      JSON.stringify(updatedFilters),
+    );
+  };
+
+  const applyFilterPreset = (preset) => {
+    setError("");
+
+    setFilterColumn(preset.filterColumn ?? "");
+    setFilterValue(preset.filterValue ?? "");
+    setFilterMin(preset.filterMin ?? "");
+    setFilterMax(preset.filterMax ?? "");
+
+    loadPreview(profile?.dataset_id, {
+      page: 1,
+      search: activeSearch,
+      sortBy,
+      sortOrder,
+      filterColumn: preset.filterColumn ?? "",
+      filterValue: preset.filterValue ?? "",
+      filterMin: preset.filterMin ?? "",
+      filterMax: preset.filterMax ?? "",
+    });
+  };
 
   function buildCleaningOperation() {
     switch (cleanOperation) {
@@ -362,6 +431,8 @@ function App() {
       setSortOrder("asc");
       setFilterColumn("");
       setFilterValue("");
+      setFilterMin("");
+      setFilterMax("");
       setPreviewPage(1);
       setCleanPreview(null);
       setCleanSuccess(result.message || "Cleaning applied successfully.");
@@ -414,6 +485,38 @@ function App() {
       );
     } finally {
       setAnalyticsLoading(false);
+    }
+  }
+
+  async function loadOutlierAnalysis() {
+    if (!profile?.dataset_id) {
+      setOutlierError("Upload a dataset before analyzing outliers.");
+      return;
+    }
+
+    setOutlierLoading(true);
+    setOutlierError("");
+
+    try {
+      const response = await fetch(
+        `${API_URL}/api/v1/datasets/${profile.dataset_id}/insights/outliers`,
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.detail || "Unable to analyze outliers.");
+      }
+
+      setOutlierData(result);
+    } catch (err) {
+      setOutlierError(
+        err instanceof TypeError
+          ? "Cannot connect to the backend. Check that FastAPI is running."
+          : err.message,
+      );
+    } finally {
+      setOutlierLoading(false);
     }
   }
 
@@ -2021,6 +2124,152 @@ function App() {
                     />
                   </div>
 
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                    <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+                      <div>
+                        <h3 className="font-semibold text-slate-900">
+                          IQR Outlier Analysis
+                        </h3>
+                        <p className="mt-1 text-sm text-slate-500">
+                          Detect unusual numeric values using the 1.5 × IQR
+                          rule. This analysis does not modify your dataset.
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={loadOutlierAnalysis}
+                        disabled={outlierLoading}
+                        className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                      >
+                        {outlierLoading && (
+                          <LoaderCircle size={17} className="animate-spin" />
+                        )}
+                        {outlierLoading ? "Analyzing..." : "Analyze outliers"}
+                      </button>
+                    </div>
+
+                    {outlierError && (
+                      <p role="alert" className="mt-4 text-sm text-red-600">
+                        {outlierError}
+                      </p>
+                    )}
+
+                    {outlierData && (
+                      <div className="mt-6 space-y-5">
+                        <div className="grid gap-4 sm:grid-cols-3">
+                          <div className="rounded-xl bg-slate-50 p-4">
+                            <p className="text-sm text-slate-500">
+                              Rows analyzed
+                            </p>
+                            <p className="mt-2 text-2xl font-semibold text-slate-900">
+                              {outlierData.total_rows.toLocaleString()}
+                            </p>
+                          </div>
+
+                          <div className="rounded-xl bg-slate-50 p-4">
+                            <p className="text-sm text-slate-500">
+                              Numeric columns
+                            </p>
+                            <p className="mt-2 text-2xl font-semibold text-slate-900">
+                              {outlierData.numeric_columns_analyzed}
+                            </p>
+                          </div>
+
+                          <div className="rounded-xl bg-slate-50 p-4">
+                            <p className="text-sm text-slate-500">
+                              Total outliers
+                            </p>
+                            <p className="mt-2 text-2xl font-semibold text-amber-600">
+                              {outlierData.outliers
+                                .reduce(
+                                  (total, item) => total + item.outlier_count,
+                                  0,
+                                )
+                                .toLocaleString()}
+                            </p>
+                          </div>
+                        </div>
+
+                        {outlierData.outliers.length > 0 ? (
+                          <div className="overflow-x-auto rounded-xl border border-slate-100">
+                            <table className="w-full text-left text-sm">
+                              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                                <tr>
+                                  <th className="px-4 py-3">Column</th>
+                                  <th className="px-4 py-3">Outliers</th>
+                                  <th className="px-4 py-3">Percentage</th>
+                                  <th className="px-4 py-3">Lower bound</th>
+                                  <th className="px-4 py-3">Upper bound</th>
+                                  <th className="px-4 py-3">Flagged values</th>
+                                </tr>
+                              </thead>
+
+                              <tbody className="divide-y divide-slate-100">
+                                {outlierData.outliers.map((item) => (
+                                  <tr key={item.column}>
+                                    <td className="whitespace-nowrap px-4 py-4 font-medium text-slate-900">
+                                      {item.column}
+                                    </td>
+                                    <td className="px-4 py-4">
+                                      <span
+                                        className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                                          item.outlier_count > 0
+                                            ? "bg-amber-50 text-amber-700"
+                                            : "bg-emerald-50 text-emerald-700"
+                                        }`}
+                                      >
+                                        {item.outlier_count}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-4">
+                                      {item.outlier_percentage}%
+                                    </td>
+                                    <td className="whitespace-nowrap px-4 py-4 text-slate-600">
+                                      {item.lower_bound == null
+                                        ? "—"
+                                        : item.lower_bound.toLocaleString()}
+                                    </td>
+                                    <td className="whitespace-nowrap px-4 py-4 text-slate-600">
+                                      {item.upper_bound == null
+                                        ? "—"
+                                        : item.upper_bound.toLocaleString()}
+                                    </td>
+                                    <td className="px-4 py-4 text-slate-600">
+                                      {item.outlier_values.length > 0
+                                        ? `${item.outlier_values
+                                            .slice(0, 10)
+                                            .map((value) =>
+                                              value.toLocaleString(),
+                                            )
+                                            .join(", ")}${
+                                            item.outlier_values.length > 10
+                                              ? `, +${item.outlier_values.length - 10} more`
+                                              : ""
+                                          }`
+                                        : "None"}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-slate-500">
+                            No numeric columns were available for outlier
+                            analysis.
+                          </p>
+                        )}
+
+                        <p className="text-xs leading-5 text-slate-500">
+                          Values outside the IQR bounds are potential outliers,
+                          not necessarily errors. Review them before deciding
+                          whether any cleaning is needed.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
                     <div className="border-b border-slate-100 p-5">
                       <h3 className="font-semibold text-slate-900">
@@ -2365,6 +2614,8 @@ function App() {
                         sortOrder,
                         filterColumn,
                         filterValue,
+                        filterMin,
+                        filterMax,
                       });
                     }}
                   >
@@ -2384,7 +2635,25 @@ function App() {
                     <input
                       value={filterValue}
                       onChange={(event) => setFilterValue(event.target.value)}
-                      placeholder="Filter value..."
+                      placeholder="Text filter..."
+                      className="min-w-0 flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-indigo-500"
+                    />
+
+                    <input
+                      type="number"
+                      value={filterMin}
+                      onChange={(event) => setFilterMin(event.target.value)}
+                      placeholder="Minimum value"
+                      aria-label="Minimum numeric filter value"
+                      className="min-w-0 flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-indigo-500"
+                    />
+
+                    <input
+                      type="number"
+                      value={filterMax}
+                      onChange={(event) => setFilterMax(event.target.value)}
+                      placeholder="Maximum value"
+                      aria-label="Maximum numeric filter value"
                       className="min-w-0 flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-indigo-500"
                     />
 
@@ -2405,6 +2674,8 @@ function App() {
                         setFilterColumn("");
                         setFilterValue("");
                         setSortBy("");
+                        setFilterMin("");
+                        setFilterMax("");
                         setSortOrder("asc");
 
                         loadPreview(profile?.dataset_id, {
@@ -2414,6 +2685,8 @@ function App() {
                           sortOrder: "asc",
                           filterColumn: "",
                           filterValue: "",
+                          filterMin: "",
+                          filterMax: "",
                         });
                       }}
                       className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium hover:bg-slate-50"
@@ -2421,6 +2694,97 @@ function App() {
                       Reset
                     </button>
                   </form>
+                  <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                    <input
+                      id="filter-preset-name"
+                      type="text"
+                      placeholder="Name this filter preset..."
+                      className="min-w-0 flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-indigo-500"
+                    />
+
+                    <button
+                      type="button"
+                      className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-700"
+                      onClick={() => {
+                        const input =
+                          document.getElementById("filter-preset-name");
+                        const name = input?.value.trim();
+
+                        if (!name) {
+                          alert("Please enter a name for this filter preset.");
+                          return;
+                        }
+
+                        saveFilterPreset(name);
+                        input.value = "";
+                      }}
+                    >
+                      Save preset
+                    </button>
+                  </div>
+                  {savedFilters.length > 0 && (
+                    <div className="mt-4 rounded-xl border border-slate-200 p-4">
+                      <h3 className="mb-3 text-sm font-semibold text-slate-800">
+                        Saved filter presets
+                      </h3>
+
+                      <div className="space-y-3">
+                        {savedFilters.map((preset) => (
+                          <div
+                            key={preset.id}
+                            className="flex flex-col gap-3 rounded-lg bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-slate-800">
+                                {preset.name}
+                              </p>
+
+                              <p className="mt-1 text-xs text-slate-500">
+                                Column: {preset.filterColumn || "All columns"}
+                                {preset.filterValue !== ""
+                                  ? ` · Text: ${preset.filterValue}`
+                                  : ""}
+                                {preset.filterMin !== ""
+                                  ? ` · Min: ${preset.filterMin}`
+                                  : ""}
+                                {preset.filterMax !== ""
+                                  ? ` · Max: ${preset.filterMax}`
+                                  : ""}
+                              </p>
+                            </div>
+
+                            <div className="flex shrink-0 gap-2">
+                              <button
+                                type="button"
+                                className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-medium text-white hover:bg-indigo-700"
+                                onClick={() => applyFilterPreset(preset)}
+                              >
+                                Apply
+                              </button>
+
+                              <button
+                                type="button"
+                                className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-white"
+                                onClick={() => {
+                                  const updatedFilters = savedFilters.filter(
+                                    (item) => item.id !== preset.id,
+                                  );
+
+                                  setSavedFilters(updatedFilters);
+                                  localStorage.setItem(
+                                    "datalens-saved-filters",
+                                    JSON.stringify(updatedFilters),
+                                  );
+                                }}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="overflow-x-auto">

@@ -216,3 +216,115 @@ def test_chart_api_rejects_unknown_column():
     )
 
     assert response.status_code == 400
+
+
+def test_preview_filters_by_minimum_value():
+    dataset_id = upload_csv(
+        "category,amount\n"
+        "A,10\n"
+        "B,20\n"
+        "C,40\n"
+    )
+
+    response = client.get(
+        f"/api/v1/datasets/{dataset_id}/preview",
+        params={"filter_column": "amount", "min_value": 20},
+    )
+
+    assert response.status_code == 200
+    assert [row["amount"] for row in response.json()["rows"]] == [20, 40]
+
+
+def test_preview_filters_by_maximum_value():
+    dataset_id = upload_csv(
+        "category,amount\n"
+        "A,10\n"
+        "B,20\n"
+        "C,40\n"
+    )
+
+    response = client.get(
+        f"/api/v1/datasets/{dataset_id}/preview",
+        params={"filter_column": "amount", "max_value": 20},
+    )
+
+    assert response.status_code == 200
+    assert [row["amount"] for row in response.json()["rows"]] == [10, 20]
+
+
+def test_preview_filters_by_numeric_range():
+    dataset_id = upload_csv(
+        "category,amount\n"
+        "A,10\n"
+        "B,20\n"
+        "C,40\n"
+        "D,60\n"
+    )
+
+    response = client.get(
+        f"/api/v1/datasets/{dataset_id}/preview",
+        params={
+            "filter_column": "amount",
+            "min_value": 20,
+            "max_value": 40,
+        },
+    )
+
+    assert response.status_code == 200
+    assert [row["amount"] for row in response.json()["rows"]] == [20, 40]
+
+
+def test_preview_rejects_numeric_range_on_text_column():
+    dataset_id = upload_csv(
+        "category,amount\n"
+        "A,10\n"
+        "B,20\n"
+    )
+
+    response = client.get(
+        f"/api/v1/datasets/{dataset_id}/preview",
+        params={"filter_column": "category", "min_value": 1},
+    )
+
+    assert response.status_code == 400
+
+def test_preview_rejects_minimum_greater_than_maximum():
+    dataset_id = upload_csv(
+        "category,amount\n"
+        "A,10\n"
+        "B,20\n"
+    )
+
+    response = client.get(
+        f"/api/v1/datasets/{dataset_id}/preview",
+        params={
+            "filter_column": "amount",
+            "min_value": 30,
+            "max_value": 10,
+        },
+    )
+
+    assert response.status_code == 400
+
+
+def test_preview_text_filter_still_works():
+    dataset_id = upload_csv(
+        "category,amount\n"
+        "Engineering,10\n"
+        "Sales,20\n"
+        "Engineering,30\n"
+    )
+
+    response = client.get(
+        f"/api/v1/datasets/{dataset_id}/preview",
+        params={
+            "filter_column": "category",
+            "filter_value": "Engineering",
+        },
+    )
+
+    assert response.status_code == 200
+    assert [row["category"] for row in response.json()["rows"]] == [
+        "Engineering",
+        "Engineering",
+    ]

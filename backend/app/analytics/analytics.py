@@ -249,3 +249,62 @@ def generate_chart_data(
         "bins": bins,
         "data": data,
     }
+
+def detect_outliers(df: pd.DataFrame) -> dict:
+    """Detect potential numeric outliers using the IQR method."""
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError("Expected a pandas DataFrame.")
+
+    if df.empty:
+        raise ValueError("Cannot detect outliers in an empty dataset.")
+
+    numeric_df = df.select_dtypes(include="number")
+    results = []
+
+    for column in numeric_df.columns:
+        # Exclude missing and infinite values from the calculation.
+        values = numeric_df[column].dropna()
+        values = values[values.map(lambda value: pd.notna(value) and abs(value) != float("inf"))]
+
+        if values.empty:
+            results.append({
+                "column": str(column),
+                "valid_count": 0,
+                "outlier_count": 0,
+                "outlier_percentage": 0.0,
+                "lower_bound": None,
+                "upper_bound": None,
+                "outlier_values": [],
+            })
+            continue
+
+        q1 = values.quantile(0.25)
+        q3 = values.quantile(0.75)
+        iqr = q3 - q1
+
+        lower_bound = q1 - 1.5 * iqr
+        upper_bound = q3 + 1.5 * iqr
+
+        outliers = values[
+            (values < lower_bound) | (values > upper_bound)
+        ]
+
+        results.append({
+            "column": str(column),
+            "valid_count": int(len(values)),
+            "outlier_count": int(len(outliers)),
+            "outlier_percentage": round(
+                float(len(outliers) / len(values) * 100), 2
+            ),
+            "lower_bound": float(lower_bound),
+            "upper_bound": float(upper_bound),
+            "outlier_values": [
+                float(value) for value in outliers.tolist()
+            ],
+        })
+
+    return {
+        "total_rows": int(len(df)),
+        "numeric_columns_analyzed": len(results),
+        "outliers": results,
+    }

@@ -17,6 +17,7 @@ from app.analytics.analytics import (
     generate_analytics,
     generate_chart_data,
     group_by_aggregate,
+    detect_outliers,
 )
 
 import pandas as pd
@@ -125,6 +126,8 @@ def preview_dataset(
     sort_order: str = Query(default="asc", pattern="^(asc|desc)$"),
     filter_column: str | None = None,
     filter_value: str | None = None,
+    min_value: float | None = None,
+    max_value: float | None = None,
 ):
     """Search, filter, sort, and paginate a stored dataset."""
 
@@ -157,21 +160,63 @@ def preview_dataset(
                 detail="Unknown filter column.",
             )
 
-        if filter_value is None:
-            raise HTTPException(
-                status_code=400,
-                detail="filter_value is required with filter_column.",
-            )
+        has_numeric_filter = min_value is not None or max_value is not None
 
-        filter_mask = result[filter_column].astype("string").str.contains(
-            filter_value,
-            case=False,
-            na=False,
-            regex=False,
-        )
+        if has_numeric_filter:
+            if filter_value is not None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot combine filter_value with numeric range filters.",
+                )
+
+            if not pd.api.types.is_numeric_dtype(result[filter_column]):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Numeric range filtering requires a numeric column.",
+                )
+
+            if (
+                min_value is not None
+                and max_value is not None
+                and min_value > max_value
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail="min_value cannot be greater than max_value.",
+                )
+
+            numeric_column = result[filter_column]
+
+            filter_mask = numeric_column.notna()
+
+            if min_value is not None:
+                filter_mask &= numeric_column >= min_value
+
+            if max_value is not None:
+                filter_mask &= numeric_column <= max_value
+
+        else:
+            if filter_value is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="filter_value is required with filter_column.",
+                )
+
+            filter_mask = result[filter_column].astype("string").str.contains(
+                filter_value,
+                case=False,
+                na=False,
+                regex=False,
+            )
 
         result = result.loc[filter_mask]
 
+    elif min_value is not None or max_value is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="filter_column is required for numeric range filtering.",
+        )
+    
     if sort_by is not None:
         if sort_by not in result.columns:
             raise HTTPException(
@@ -352,6 +397,29 @@ def get_chart_data(
         return {
             "dataset_id": dataset_id,
             **result,
+        }
+
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+@app.get("/api/v1/datasets/{dataset_id}/insights/outliers")
+def get_dataset_outliers(dataset_id: str):
+    """Return potential numeric outliers for a dataset."""
+    df = get_dataset(dataset_id)
+
+    if df is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Dataset not found. Upload the file again.",
+        )
+
+    try:
+        return {
+            "dataset_id": dataset_id,
+            **detect_outliers(df),
         }
 
     except (ValueError, TypeError) as exc:
