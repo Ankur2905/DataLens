@@ -15,6 +15,7 @@ import {
   Sparkles,
   UploadCloud,
   X,
+  Download,
 } from "lucide-react";
 import {
   Bar,
@@ -59,6 +60,7 @@ function MetricCard({ title, value, description, icon: Icon }) {
 
 function App() {
   const fileInputRef = useRef(null);
+  const chartContainerRef = useRef(null);
   const [profile, setProfile] = useState(null);
   const [fileName, setFileName] = useState("");
   const [loading, setLoading] = useState(false);
@@ -562,6 +564,185 @@ function App() {
     } finally {
       setChartLoading(false);
     }
+  }
+
+  function exportChartCsv() {
+    if (!chartResults?.data?.length) {
+      setChartError("Generate a chart with data before exporting.");
+      return;
+    }
+
+    const chartTypeLabels = {
+      bar: "Bar Chart",
+      line: "Line Chart",
+      scatter: "Scatter Plot",
+      histogram: "Histogram",
+    };
+
+    const aggregationLabels = {
+      count: "Count",
+      sum: "Sum",
+      mean: "Mean",
+      median: "Median",
+      min: "Minimum",
+      max: "Maximum",
+    };
+
+    const aggregationLabel =
+      aggregationLabels[chartAggregation] || chartAggregation;
+
+    let xHeader = chartXColumn;
+    let yHeader = "Value";
+    let operationApplied = "";
+    let aggregationDescription = "";
+
+    if (chartType === "scatter") {
+      xHeader = chartResults.x_column || chartXColumn;
+      yHeader = chartResults.y_column || chartYColumn;
+      operationApplied = "Raw X-Y observations; no aggregation applied";
+      aggregationDescription = "None";
+    } else if (chartType === "histogram") {
+      xHeader = `${chartXColumn} (bin)`;
+      yHeader = "Frequency";
+      operationApplied = `Count observations in each bin of ${chartXColumn}`;
+      aggregationDescription = "Frequency count";
+    } else if (chartAggregation === "count") {
+      yHeader = "Row Count";
+      operationApplied = `Count rows grouped by ${chartXColumn}`;
+      aggregationDescription = "Count rows";
+    } else {
+      yHeader = `${aggregationLabel} of ${chartYColumn}`;
+      operationApplied = `${aggregationLabel} of ${chartYColumn}, grouped by ${chartXColumn}`;
+      aggregationDescription = aggregationLabel;
+    }
+
+    const escapeCsvValue = (value) => {
+      const text = value == null ? "" : String(value);
+      return `"${text.replace(/"/g, '""')}"`;
+    };
+
+    const metadata = [
+      ["Chart Type", chartTypeLabels[chartType] || chartType],
+      ["X-axis / Grouping Column", chartXColumn || "—"],
+      [
+        "Y-axis / Metric Column",
+        chartType === "histogram"
+          ? "Frequency"
+          : chartType === "scatter"
+            ? chartYColumn || "—"
+            : chartAggregation === "count"
+              ? "Row count"
+              : chartYColumn || "—",
+      ],
+      ["Aggregation", aggregationDescription],
+      ["Operation Applied", operationApplied],
+      ...(chartType === "histogram" ? [["Number of Bins", chartBins]] : []),
+      ["Data Points Exported", chartResults.data.length],
+    ];
+
+    const metadataRows = metadata
+      .map((row) => row.map(escapeCsvValue).join(","))
+      .join("\r\n");
+
+    const dataRows = [
+      [xHeader, yHeader],
+      ...chartResults.data.map((row) => [row.x, row.y]),
+    ]
+      .map((row) => row.map(escapeCsvValue).join(","))
+      .join("\r\n");
+
+    const csv = `${metadataRows}\r\n\r\n${dataRows}`;
+    const blob = new Blob(["\uFEFF", csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = `datalens-${chartType}-export.csv`;
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    URL.revokeObjectURL(url);
+  }
+
+  function exportChartPng() {
+    const svg = chartContainerRef.current?.querySelector("svg");
+
+    if (!svg) {
+      setChartError("Generate a chart before exporting as PNG.");
+      return;
+    }
+
+    setChartError("");
+
+    const bounds = svg.getBoundingClientRect();
+    const width = Math.ceil(bounds.width);
+    const height = Math.ceil(bounds.height);
+
+    const clonedSvg = svg.cloneNode(true);
+    clonedSvg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    clonedSvg.setAttribute("width", String(width));
+    clonedSvg.setAttribute("height", String(height));
+
+    const svgData = new XMLSerializer().serializeToString(clonedSvg);
+    const svgBlob = new Blob([svgData], {
+      type: "image/svg+xml;charset=utf-8",
+    });
+
+    const svgUrl = URL.createObjectURL(svgBlob);
+    const image = new Image();
+
+    image.onload = () => {
+      const scale = 2;
+      const canvas = document.createElement("canvas");
+
+      canvas.width = width * scale;
+      canvas.height = height * scale;
+
+      const context = canvas.getContext("2d");
+
+      if (!context) {
+        setChartError("Unable to prepare the chart image.");
+        URL.revokeObjectURL(svgUrl);
+        return;
+      }
+
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+      canvas.toBlob((blob) => {
+        URL.revokeObjectURL(svgUrl);
+
+        if (!blob) {
+          setChartError("Unable to export the chart as PNG.");
+          return;
+        }
+
+        const pngUrl = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+
+        link.href = pngUrl;
+        link.download = `datalens-${chartType}-chart.png`;
+
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        URL.revokeObjectURL(pngUrl);
+      }, "image/png");
+    };
+
+    image.onerror = () => {
+      setChartError("Unable to render the chart image.");
+      URL.revokeObjectURL(svgUrl);
+    };
+
+    image.src = svgUrl;
   }
 
   const columns = profile
@@ -1471,12 +1652,34 @@ function App() {
 
                     {chartResults && (
                       <div className="mt-6">
-                        <h4 className="font-semibold text-slate-900">
-                          Chart preview
-                        </h4>
+                        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                          <h4 className="font-semibold text-slate-900">
+                            Chart preview
+                          </h4>
+
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={exportChartCsv}
+                              className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                            >
+                              <FileSpreadsheet size={17} />
+                              Export CSV
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={exportChartPng}
+                              className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700"
+                            >
+                              <Download size={17} />
+                              Export PNG
+                            </button>
+                          </div>
+                        </div>
 
                         {chartResults.data.length > 0 ? (
-                          <div className="mt-4 h-80">
+                          <div ref={chartContainerRef} className="mt-4 h-80">
                             <ResponsiveContainer width="100%" height="100%">
                               {chartResults.chart_type === "scatter" ? (
                                 <ScatterChart
