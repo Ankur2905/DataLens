@@ -1,7 +1,7 @@
 from io import BytesIO
 from pathlib import Path
 from fastapi import FastAPI, File, HTTPException, UploadFile, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from app.analytics.profiler import profile_dataframe
 from app.analytics.dataset_store import get_dataset, store_dataset
 from fastapi.middleware.cors import CORSMiddleware
@@ -427,3 +427,52 @@ def get_dataset_outliers(dataset_id: str):
             status_code=400,
             detail=str(exc),
         ) from exc
+
+@app.get("/api/v1/datasets/{dataset_id}/export")
+def export_dataset(
+    dataset_id: str,
+    export_format: str = Query(
+        default="csv",
+        pattern="^(csv|xlsx)$",
+    ),
+):
+    """Export the current working dataset as CSV or Excel."""
+
+    df = get_dataset(dataset_id)
+
+    if df is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Dataset not found. Upload the file again.",
+        )
+
+    buffer = BytesIO()
+
+    if export_format == "csv":
+        content = df.to_csv(index=False).encode("utf-8-sig")
+        buffer.write(content)
+        media_type = "text/csv"
+        filename = f"datalens-cleaned-{dataset_id}.csv"
+    else:
+        df.to_excel(
+            buffer,
+            index=False,
+            engine="openpyxl",
+        )
+        media_type = (
+            "application/vnd.openxmlformats-officedocument"
+            ".spreadsheetml.sheet"
+        )
+        filename = f"datalens-cleaned-{dataset_id}.xlsx"
+
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{filename}"'
+            ),
+        },
+    )

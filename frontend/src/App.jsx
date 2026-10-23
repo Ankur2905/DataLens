@@ -95,6 +95,9 @@ function App() {
   const [cleanLoading, setCleanLoading] = useState(false);
   const [cleanError, setCleanError] = useState("");
   const [cleanSuccess, setCleanSuccess] = useState("");
+  const [exportFormat, setExportFormat] = useState("csv");
+  const [exportLoading, setExportLoading] = useState(false);
+  const [exportError, setExportError] = useState("");
   const [analyticsData, setAnalyticsData] = useState(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsError, setAnalyticsError] = useState("");
@@ -453,6 +456,55 @@ function App() {
       );
     } finally {
       setCleanLoading(false);
+    }
+  }
+
+  async function exportCleanedData() {
+    if (!profile?.dataset_id) {
+      setExportError("Upload a dataset before exporting.");
+      return;
+    }
+
+    setExportLoading(true);
+    setExportError("");
+
+    try {
+      const response = await fetch(
+        `${API_URL}/api/v1/datasets/${profile.dataset_id}/export?export_format=${exportFormat}`,
+      );
+
+      if (!response.ok) {
+        let message = "Unable to export the cleaned dataset.";
+
+        try {
+          const result = await response.json();
+          message = result.detail || message;
+        } catch {
+          // Keep the fallback error message.
+        }
+
+        throw new Error(message);
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = `datalens-cleaned.${exportFormat}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setExportError(
+        err instanceof TypeError
+          ? "Cannot connect to the backend. Check that FastAPI is running."
+          : err.message,
+      );
+    } finally {
+      setExportLoading(false);
     }
   }
 
@@ -1267,6 +1319,55 @@ function App() {
                         </button>
                       )}
                     </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-white p-6">
+                    <h3 className="font-semibold text-slate-900">
+                      Export cleaned dataset
+                    </h3>
+
+                    <p className="mt-1 text-sm text-slate-500">
+                      Download your current working dataset after applying
+                      cleaning operations.
+                    </p>
+
+                    <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                      <select
+                        value={exportFormat}
+                        onChange={(event) =>
+                          setExportFormat(event.target.value)
+                        }
+                        disabled={exportLoading}
+                        aria-label="Export format"
+                        className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm"
+                      >
+                        <option value="csv">CSV (.csv)</option>
+                        <option value="xlsx">Excel (.xlsx)</option>
+                      </select>
+
+                      <button
+                        type="button"
+                        onClick={exportCleanedData}
+                        disabled={exportLoading || !profile?.dataset_id}
+                        className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                      >
+                        {exportLoading ? (
+                          <LoaderCircle size={17} className="animate-spin" />
+                        ) : (
+                          <Download size={17} />
+                        )}
+
+                        {exportLoading
+                          ? "Preparing download..."
+                          : "Download cleaned data"}
+                      </button>
+                    </div>
+
+                    {exportError && (
+                      <p role="alert" className="mt-3 text-sm text-red-600">
+                        {exportError}
+                      </p>
+                    )}
                   </div>
 
                   {cleanError && (
