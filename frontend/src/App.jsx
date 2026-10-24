@@ -16,6 +16,8 @@ import {
   UploadCloud,
   X,
   Download,
+  History,
+  Undo2,
 } from "lucide-react";
 import {
   Bar,
@@ -95,6 +97,10 @@ function App() {
   const [cleanLoading, setCleanLoading] = useState(false);
   const [cleanError, setCleanError] = useState("");
   const [cleanSuccess, setCleanSuccess] = useState("");
+  const [cleaningHistory, setCleaningHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+  const [undoLoading, setUndoLoading] = useState(false);
   const [exportFormat, setExportFormat] = useState("csv");
   const [exportLoading, setExportLoading] = useState(false);
   const [exportError, setExportError] = useState("");
@@ -139,6 +145,10 @@ function App() {
     setAnalyticsError("");
     setGroupError("");
     setPreviewData(null);
+    setCleaningHistory([]);
+    setHistoryError("");
+    setCleanSuccess("");
+    setCleanError("");
     setFileName(file.name);
 
     try {
@@ -448,6 +458,7 @@ function App() {
         filterColumn: "",
         filterValue: "",
       });
+      await loadCleaningHistory(profile.dataset_id);
     } catch (err) {
       setCleanError(
         err instanceof TypeError
@@ -456,6 +467,105 @@ function App() {
       );
     } finally {
       setCleanLoading(false);
+    }
+  }
+
+  async function loadCleaningHistory(datasetId) {
+    if (!datasetId) return;
+
+    setHistoryLoading(true);
+    setHistoryError("");
+
+    try {
+      const response = await fetch(
+        `${API_URL}/api/v1/datasets/${datasetId}/clean/history`,
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.detail || "Unable to load cleaning history.");
+      }
+
+      setCleaningHistory(result.history ?? []);
+    } catch (err) {
+      setHistoryError(
+        err instanceof TypeError
+          ? "Cannot connect to the backend. Check that FastAPI is running."
+          : err.message,
+      );
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  async function undoCleaning() {
+    if (!profile?.dataset_id || undoLoading) return;
+
+    const confirmed = window.confirm(
+      "Undo the most recent cleaning operation? Your dataset will be restored to its previous state.",
+    );
+
+    if (!confirmed) return;
+
+    setUndoLoading(true);
+    setCleanError("");
+    setCleanSuccess("");
+    setHistoryError("");
+
+    try {
+      const response = await fetch(
+        `${API_URL}/api/v1/datasets/${profile.dataset_id}/clean/undo`,
+        { method: "POST" },
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.detail || "Unable to undo cleaning.");
+      }
+
+      setProfile((current) =>
+        current
+          ? {
+              ...current,
+              ...result.profile,
+              dataset_id: current.dataset_id,
+            }
+          : current,
+      );
+
+      setCleanPreview(null);
+      setSearchInput("");
+      setActiveSearch("");
+      setSortBy("");
+      setSortOrder("asc");
+      setFilterColumn("");
+      setFilterValue("");
+      setFilterMin("");
+      setFilterMax("");
+      setPreviewPage(1);
+
+      setCleanSuccess(result.message || "Cleaning undone successfully.");
+
+      await loadPreview(profile.dataset_id, {
+        page: 1,
+        search: "",
+        sortBy: "",
+        sortOrder: "asc",
+        filterColumn: "",
+        filterValue: "",
+      });
+
+      await loadCleaningHistory(profile.dataset_id);
+    } catch (err) {
+      setCleanError(
+        err instanceof TypeError
+          ? "Cannot connect to the backend. Check that FastAPI is running."
+          : err.message,
+      );
+    } finally {
+      setUndoLoading(false);
     }
   }
 
@@ -1370,6 +1480,121 @@ function App() {
                     )}
                   </div>
 
+                  <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-start gap-3">
+                        <div className="rounded-xl bg-indigo-50 p-3 text-indigo-600">
+                          <History size={20} />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-semibold text-slate-900">
+                            Cleaning History
+                          </h3>
+                          <p className="mt-1 text-sm text-slate-500">
+                            Review applied cleaning operations and undo the
+                            latest change.
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={undoCleaning}
+                        disabled={
+                          undoLoading ||
+                          historyLoading ||
+                          cleaningHistory.length === 0
+                        }
+                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {undoLoading ? (
+                          <LoaderCircle size={16} className="animate-spin" />
+                        ) : (
+                          <Undo2 size={16} />
+                        )}
+                        {undoLoading ? "Undoing..." : "Undo last operation"}
+                      </button>
+                    </div>
+
+                    {historyError && (
+                      <div className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">
+                        {historyError}
+                      </div>
+                    )}
+
+                    {historyLoading ? (
+                      <div className="flex items-center gap-2 py-8 text-sm text-slate-500">
+                        <LoaderCircle size={18} className="animate-spin" />
+                        Loading cleaning history...
+                      </div>
+                    ) : cleaningHistory.length === 0 ? (
+                      <div className="mt-5 rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center">
+                        <History size={28} className="mx-auto text-slate-400" />
+                        <p className="mt-3 text-sm font-medium text-slate-700">
+                          No cleaning operations yet
+                        </p>
+                        <p className="mt-1 text-sm text-slate-500">
+                          Applied operations will appear here.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="mt-5 space-y-3">
+                        {cleaningHistory.map((item, index) => (
+                          <div
+                            key={item.history_id ?? item.id ?? index}
+                            className="flex items-start gap-3 rounded-xl border border-slate-200 p-4"
+                          >
+                            <div className="mt-0.5 rounded-lg bg-emerald-50 p-2 text-emerald-600">
+                              <CheckCircle2 size={18} />
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium text-slate-800">
+                                {(typeof item.operation === "object"
+                                  ? item.operation?.type
+                                  : item.operation || "Cleaning operation"
+                                )
+                                  ?.replaceAll("_", " ")
+                                  .replace(/\b\w/g, (character) =>
+                                    character.toUpperCase(),
+                                  ) || "Cleaning operation"}
+                              </p>
+
+                              {item.summary && (
+                                <p className="mt-1 text-sm text-slate-500">
+                                  {typeof item.summary === "string"
+                                    ? item.summary
+                                    : Object.entries(item.summary)
+                                        .map(
+                                          ([key, value]) =>
+                                            `${key.replaceAll("_", " ")}: ${
+                                              typeof value === "object"
+                                                ? JSON.stringify(value)
+                                                : String(value)
+                                            }`,
+                                        )
+                                        .join(" · ")}
+                                </p>
+                              )}
+
+                              {item.created_at && (
+                                <p className="mt-2 text-xs text-slate-400">
+                                  {new Date(item.created_at).toLocaleString()}
+                                </p>
+                              )}
+                            </div>
+
+                            {index === 0 && (
+                              <span className="shrink-0 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700">
+                                Latest
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                   {cleanError && (
                     <div
                       role="alert"
@@ -1396,7 +1621,7 @@ function App() {
                             Rows before cleaning
                           </p>
                           <p className="mt-2 text-3xl font-semibold text-slate-900">
-                            {cleanPreview.before.rows.toLocaleString()}
+                            {(cleanPreview.before?.rows ?? 0).toLocaleString()}
                           </p>
                         </div>
 
@@ -1405,7 +1630,7 @@ function App() {
                             Rows after cleaning
                           </p>
                           <p className="mt-2 text-3xl font-semibold text-emerald-700">
-                            {cleanPreview.after.rows.toLocaleString()}
+                            {(cleanPreview.after?.rows ?? 0).toLocaleString()}
                           </p>
                         </div>
                       </div>
@@ -1427,8 +1652,8 @@ function App() {
                             </h3>
                           </div>
                           {renderCleaningTable(
-                            cleanPreview.before.preview,
-                            cleanPreview.before.columns,
+                            cleanPreview.before?.preview ?? [],
+                            cleanPreview.before?.columns ?? [],
                           )}
                         </div>
 
@@ -1439,8 +1664,8 @@ function App() {
                             </h3>
                           </div>
                           {renderCleaningTable(
-                            cleanPreview.after.preview,
-                            cleanPreview.after.columns,
+                            cleanPreview.after?.preview ?? [],
+                            cleanPreview.after?.columns ?? [],
                           )}
                         </div>
                       </div>

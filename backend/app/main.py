@@ -3,7 +3,7 @@ from pathlib import Path
 from fastapi import FastAPI, File, HTTPException, UploadFile, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 from app.analytics.profiler import profile_dataframe
-from app.analytics.dataset_store import get_dataset, store_dataset
+from app.analytics.dataset_store import get_dataset, store_dataset, get_original_dataset, record_cleaning_operation, update_working_dataset, get_cleaning_history, undo_last_cleaning
 from fastapi.middleware.cors import CORSMiddleware
 from math import ceil
 from app.analytics.cleaner import apply_cleaning_operation
@@ -303,7 +303,13 @@ def apply_cleaning(dataset_id: str, operation: dict):
 
     try:
         cleaned_df, summary = apply_cleaning_operation(df, operation)
-        update_working_dataset(dataset_id, cleaned_df)
+        record_cleaning_operation(
+            dataset_id=dataset_id,
+            operation=operation,
+            summary=summary,
+            previous_df=df,
+            cleaned_df=cleaned_df
+            )
 
         return {
             "dataset_id": dataset_id,
@@ -318,6 +324,50 @@ def apply_cleaning(dataset_id: str, operation: dict):
             detail=str(exc),
         ) from exc
 
+@app.get("/api/v1/datasets/{dataset_id}/clean/history")
+def get_dataset_cleaning_history(dataset_id: str):
+    """Return the cleaning history for a dataset."""
+
+    df = get_dataset(dataset_id)
+
+    if df is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Dataset not found. Upload the file again.",
+        )
+
+    return {
+        "dataset_id": dataset_id,
+        "history": get_cleaning_history(dataset_id),
+    }    
+
+@app.post("/api/v1/datasets/{dataset_id}/clean/undo")
+def undo_cleaning(dataset_id: str):
+    """Undo the most recently applied cleaning operation."""
+
+    df = get_dataset(dataset_id)
+
+    if df is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Dataset not found. Upload the file again.",
+        )
+
+    result = undo_last_cleaning(dataset_id)
+
+    if result is None:
+        raise HTTPException(
+            status_code=400,
+            detail="There is no cleaning operation to undo.",
+        )
+
+    restored_df = get_dataset(dataset_id)
+
+    return {
+        "dataset_id": dataset_id,
+        **result,
+        "profile": profile_dataframe(restored_df),
+    }
 
 @app.get("/api/v1/datasets/{dataset_id}/analytics")
 def get_dataset_analytics(dataset_id: str):
@@ -334,7 +384,6 @@ def get_dataset_analytics(dataset_id: str):
         "dataset_id": dataset_id,
         **generate_analytics(df),
     }
-
 
 @app.post("/api/v1/datasets/{dataset_id}/analytics/group-by")
 def get_group_by_analytics(
@@ -368,7 +417,6 @@ def get_group_by_analytics(
             status_code=400,
             detail=str(exc),
         ) from exc
-
 
 @app.post("/api/v1/datasets/{dataset_id}/analytics/chart")
 def get_chart_data(

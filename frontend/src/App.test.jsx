@@ -332,7 +332,7 @@ describe("DataLens dashboard", () => {
     );
 
     await waitFor(() => {
-      expect(fetch).toHaveBeenCalledTimes(5);
+      expect(fetch).toHaveBeenCalledTimes(6);
     });
 
     expect(fetch.mock.calls[3][0]).toContain(
