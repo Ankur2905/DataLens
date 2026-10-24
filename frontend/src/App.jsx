@@ -18,6 +18,7 @@ import {
   Download,
   History,
   Undo2,
+  Menu,
 } from "lucide-react";
 import {
   Bar,
@@ -69,6 +70,7 @@ function App() {
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
   const [activePage, setActivePage] = useState("Overview");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [previewData, setPreviewData] = useState(null);
   const [previewPage, setPreviewPage] = useState(1);
   const [searchInput, setSearchInput] = useState("");
@@ -1069,6 +1071,81 @@ function App() {
 
   return (
     <div className="min-h-screen bg-[#f7f8fc] text-slate-800">
+      {isSidebarOpen && (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <button
+            type="button"
+            aria-label="Close navigation menu"
+            className="absolute inset-0 bg-slate-900/40"
+            onClick={() => setIsSidebarOpen(false)}
+          />
+
+          <aside
+            role="dialog"
+            aria-modal="true"
+            aria-label="Navigation menu"
+            className="absolute inset-y-0 left-0 z-10 flex w-72 max-w-[85vw] flex-col border-r border-slate-200 bg-white px-5 py-6 shadow-xl"
+          >
+            <div className="flex items-center justify-between gap-3 px-2">
+              <div className="flex items-center gap-3">
+                <div className="rounded-xl bg-indigo-600 p-2.5 text-white">
+                  <Activity size={23} />
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold tracking-tight text-slate-900">
+                    DataLens
+                  </h1>
+                  <p className="text-xs text-slate-500">Data intelligence</p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                aria-label="Close navigation menu"
+                onClick={() => setIsSidebarOpen(false)}
+                className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <p className="mb-3 mt-10 px-3 text-xs font-semibold uppercase tracking-widest text-slate-400">
+              Workspace
+            </p>
+
+            <nav className="space-y-1">
+              {navigation.map(({ label, icon: Icon }) => (
+                <button
+                  key={label}
+                  onClick={() => {
+                    setActivePage(label);
+                    setIsSidebarOpen(false);
+                  }}
+                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium transition ${
+                    activePage === label
+                      ? "bg-indigo-50 text-indigo-700"
+                      : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+                  }`}
+                >
+                  <Icon size={19} />
+                  {label}
+                </button>
+              ))}
+            </nav>
+
+            <div className="mt-auto rounded-2xl bg-slate-50 p-4">
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
+                <Sparkles size={17} className="text-indigo-600" />
+                DataLens Starter
+              </div>
+              <p className="text-xs leading-5 text-slate-500">
+                Upload a dataset to discover data-quality issues and statistics.
+              </p>
+            </div>
+          </aside>
+        </div>
+      )}
+
       <aside className="fixed inset-y-0 left-0 z-10 hidden w-64 border-r border-slate-200 bg-white px-5 py-6 lg:flex lg:flex-col">
         <div className="flex items-center gap-3 px-2">
           <div className="rounded-xl bg-indigo-600 p-2.5 text-white">
@@ -1112,33 +1189,25 @@ function App() {
             Upload a dataset to discover data-quality issues and statistics.
           </p>
         </div>
-
-        <button
-          onClick={() => setActivePage("Settings")}
-          className="mt-5 flex items-center gap-3 px-3 py-2 text-sm text-slate-500 hover:text-slate-900"
-        >
-          <Settings size={18} />
-          Settings
-        </button>
       </aside>
 
       <main className="min-h-screen lg:ml-64">
-        <header className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white/90 px-5 py-4 backdrop-blur sm:px-8">
-          <div>
+        <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-slate-200 bg-white/90 px-5 py-4 backdrop-blur sm:px-8">
+          <button
+            type="button"
+            onClick={() => setIsSidebarOpen(true)}
+            aria-label="Open navigation menu"
+            aria-expanded={isSidebarOpen}
+            className="inline-flex shrink-0 items-center justify-center rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-50 lg:hidden"
+          >
+            <Menu size={20} />
+          </button>
+
+          <div className="min-w-0 flex-1">
             <p className="text-xs text-slate-500">Workspace / Data</p>
             <h2 className="mt-1 text-lg font-semibold text-slate-900">
               {activePage}
             </h2>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="hidden items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-500 sm:flex">
-              <Search size={16} />
-              <span>Data workspace</span>
-            </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 font-semibold text-indigo-700">
-              D
-            </div>
           </div>
         </header>
 
