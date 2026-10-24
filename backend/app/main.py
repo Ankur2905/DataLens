@@ -324,6 +324,12 @@ def apply_cleaning(dataset_id: str, operation: dict):
             detail=str(exc),
         ) from exc
 
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+
 @app.get("/api/v1/datasets/{dataset_id}/clean/history")
 def get_dataset_cleaning_history(dataset_id: str):
     """Return the cleaning history for a dataset."""

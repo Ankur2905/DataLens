@@ -19,6 +19,7 @@ def _get_connection() -> sqlite3.Connection:
 
     connection = sqlite3.connect(DATABASE_PATH)
     connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
 
     return connection
 
@@ -136,7 +137,7 @@ def record_cleaning_operation(
     previous_df: pd.DataFrame,
     cleaned_df: pd.DataFrame,
 ) -> None:
-    """Atomically save history and update the working dataset."""
+    """Atomically save cleaning history and update the working dataset."""
     timestamp = datetime.now(timezone.utc).isoformat()
 
     operation_json = json.dumps(operation, default=str)
@@ -150,12 +151,32 @@ def record_cleaning_operation(
             UPDATE datasets
             SET working_json = ?
             WHERE dataset_id = ?
+              AND working_json = ?
             """,
-            (cleaned_json, dataset_id),
+            (
+                cleaned_json,
+                dataset_id,
+                previous_json,
+            ),
         )
 
         if cursor.rowcount == 0:
-            raise KeyError(f"Dataset not found: {dataset_id}")
+            exists = connection.execute(
+                """
+                SELECT 1
+                FROM datasets
+                WHERE dataset_id = ?
+                """,
+                (dataset_id,),
+            ).fetchone()
+
+            if exists is None:
+                raise KeyError(f"Dataset not found: {dataset_id}")
+
+            raise RuntimeError(
+                "Dataset changed during cleaning. "
+                "Please retry the operation."
+            )
 
         connection.execute(
             """

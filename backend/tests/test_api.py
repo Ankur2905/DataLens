@@ -269,3 +269,137 @@ def test_cleaning_rejects_invalid_operation():
     )
 
     assert response.status_code == 400
+
+def test_undo_restores_previous_cleaning_state():
+    csv_content = (
+        b"product,price\n"
+        b"Laptop,100\n"
+        b"Phone,\n"
+        b"Tablet,300\n"
+    )
+
+    upload = client.post(
+        "/api/v1/datasets/profile",
+        files={
+            "file": (
+                "sales.csv",
+                csv_content,
+                "text/csv",
+            )
+        },
+    )
+
+    assert upload.status_code == 200
+    dataset_id = upload.json()["dataset_id"]
+
+    first_cleaning = client.post(
+        f"/api/v1/datasets/{dataset_id}/clean/apply",
+        json={
+            "type": "fill_missing",
+            "columns": ["price"],
+            "strategy": "constant",
+            "value": 200,
+        },
+    )
+
+    assert first_cleaning.status_code == 200
+
+    second_cleaning = client.post(
+        f"/api/v1/datasets/{dataset_id}/clean/apply",
+        json={
+            "type": "fill_missing",
+            "columns": ["price"],
+            "strategy": "constant",
+            "value": 250,
+        },
+    )
+
+    assert second_cleaning.status_code == 200
+
+    undo_response = client.post(
+        f"/api/v1/datasets/{dataset_id}/clean/undo"
+    )
+
+    assert undo_response.status_code == 200
+
+    current = client.get(
+        f"/api/v1/datasets/{dataset_id}/preview"
+    )
+
+    assert current.status_code == 200
+    rows = current.json()["rows"]
+
+    assert rows[1]["price"] == 200
+
+    history_response = client.get(
+        f"/api/v1/datasets/{dataset_id}/clean/history"
+    )
+
+    assert history_response.status_code == 200
+    history = history_response.json()["history"]
+
+    assert len(history) == 1
+
+def test_stale_cleaning_update_is_rejected():
+    from app.analytics.dataset_store import (
+        get_dataset,
+        record_cleaning_operation,
+    )
+
+    upload = client.post(
+        "/api/v1/datasets/profile",
+        files={
+            "file": (
+                "sales.csv",
+                b"product,price\nLaptop,100\nPhone,\n",
+                "text/csv",
+            )
+        },
+    )
+
+    assert upload.status_code == 200
+    dataset_id = upload.json()["dataset_id"]
+
+    # Simulate a cleaning request reading the original state.
+    stale_df = get_dataset(dataset_id)
+    assert stale_df is not None
+
+    # Simulate another request updating the dataset first.
+    client.post(
+        f"/api/v1/datasets/{dataset_id}/clean/apply",
+        json={
+            "type": "fill_missing",
+            "columns": ["price"],
+            "strategy": "constant",
+            "value": 200,
+        },
+    )
+
+    # The stale request must not overwrite that newer state.
+    stale_cleaned_df = stale_df.copy(deep=True)
+    stale_cleaned_df["price"] = (
+        stale_cleaned_df["price"].fillna(999)
+    )
+
+    import pytest
+
+    with pytest.raises(RuntimeError, match="Dataset changed"):
+        record_cleaning_operation(
+            dataset_id=dataset_id,
+            operation={
+                "type": "fill_missing",
+                "columns": ["price"],
+                "strategy": "constant",
+                "value": 999,
+            },
+            summary={},
+            previous_df=stale_df,
+            cleaned_df=stale_cleaned_df,
+        )
+
+    current = client.get(
+        f"/api/v1/datasets/{dataset_id}/preview"
+    )
+
+    assert current.status_code == 200
+    assert current.json()["rows"][1]["price"] == 200
